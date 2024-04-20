@@ -279,6 +279,10 @@ void CWinDevicesDlg::OnBnClickedBtnEnum()
 {
 	UpdateData(TRUE);
 
+	// clear old data
+	m_strDevicesInfo.Empty();
+
+	// get class guid
 	GUID guid;
 	auto isSetup = false;
 	auto hasClassGuid = GetClassGuid(&guid, isSetup);
@@ -287,6 +291,7 @@ void CWinDevicesDlg::OnBnClickedBtnEnum()
 	auto selectInterface = hasClassGuid && !isSetup;
 	auto selectEnumerator = !m_strEnumerator.IsEmpty();
 
+	// set flags
 	DWORD flags = DIGCF_PRESENT;
 	if (selectSetup && !selectEnumerator) {
 		flags = DIGCF_PRESENT;
@@ -321,6 +326,7 @@ void CWinDevicesDlg::OnBnClickedBtnEnum()
 	ZeroMemory(&deviceInfoData, sizeof(SP_DEVINFO_DATA));
 	deviceInfoData.cbSize = sizeof(SP_DEVINFO_DATA);
 
+	// enum device
 	while (SetupDiEnumDeviceInfo(
 		hDeviceInfoSet,
 		deviceIndex,
@@ -490,13 +496,14 @@ void CWinDevicesDlg::OnBnClickedBtnSave()
 		strFileName += strGuidClass;
 	}
 
+	strFileName.Replace(_T("Empty"), _T("ALLCLASSES"));
 
 	if (!m_strEnumerator.IsEmpty()) {
 		strFileName += _T("___") + m_strEnumerator;
 	}
 
 	if (strFileName.IsEmpty()) {
-		strFileName.Format(_T("%04d_%04d_%04d"), ::rand(), ::rand(), ::rand());
+		strFileName.Format(_T("ALLCLASSES%04d_%04d_%04d"), ::rand(), ::rand(), ::rand());
 	}
 
 	strFileName += _T(".txt");
