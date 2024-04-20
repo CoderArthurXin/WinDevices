@@ -96,6 +96,7 @@ BEGIN_MESSAGE_MAP(CWinDevicesDlg, CDialogEx)
 	ON_BN_CLICKED(IDC_BTN_ENUM, &CWinDevicesDlg::OnBnClickedBtnEnum)
 	ON_CBN_SELCHANGE(IDC_COMBO_SETUP_CLASS, &CWinDevicesDlg::OnSelchangeComboSetupClass)
 	ON_CBN_SELCHANGE(IDC_COMBO_INTERFACE_CLASS, &CWinDevicesDlg::OnSelchangeComboInterfaceClass)
+	ON_BN_CLICKED(IDC_BTN_SAVE, &CWinDevicesDlg::OnBnClickedBtnSave)
 END_MESSAGE_MAP()
 
 
@@ -185,9 +186,6 @@ HCURSOR CWinDevicesDlg::OnQueryDragIcon()
 {
 	return static_cast<HCURSOR>(m_hIcon);
 }
-
-
-
 
 const std::vector<DevPropKeyItem> _PropKeysPtr{
 	{&DEVPKEY_NAME,                          DEVPROP_TYPE_STRING,  L"DEVPKEY_NAME"},
@@ -285,9 +283,26 @@ void CWinDevicesDlg::OnBnClickedBtnEnum()
 	auto isSetup = false;
 	auto hasClassGuid = GetClassGuid(&guid, isSetup);
 
+	auto selectSetup = hasClassGuid && isSetup;
+	auto selectInterface = hasClassGuid && !isSetup;
+	auto selectEnumerator = !m_strEnumerator.IsEmpty();
+
 	DWORD flags = DIGCF_PRESENT;
-	if (!hasClassGuid)  flags |= DIGCF_ALLCLASSES;
-	if (!isSetup) flags |= DIGCF_DEVICEINTERFACE;
+	if (selectSetup && !selectEnumerator) {
+		flags = DIGCF_PRESENT;
+	}
+	else if (selectSetup && selectEnumerator) {
+		flags = DIGCF_PRESENT;
+	}
+	else if (selectInterface && !selectEnumerator) {
+		flags = DIGCF_PRESENT | DIGCF_DEVICEINTERFACE;
+	}
+	else if (selectInterface && selectEnumerator) {
+		flags = DIGCF_PRESENT | DIGCF_DEVICEINTERFACE;
+	}
+	else {
+		flags = DIGCF_PRESENT | DIGCF_ALLCLASSES;
+	}
 
 	auto hDeviceInfoSet = SetupDiGetClassDevs(
 		hasClassGuid ? &guid : nullptr,
@@ -454,4 +469,44 @@ void CWinDevicesDlg::InitInterfaceClassCombo()
 	}
 
 	UpdateData(FALSE);
+}
+
+
+void CWinDevicesDlg::OnBnClickedBtnSave()
+{
+	UpdateData(TRUE);
+
+	if (m_strDevicesInfo.IsEmpty()) {
+		MessageBox(_T("No data to save."));
+		return;
+	}
+
+	CString strFileName;
+	auto strGuidClass = m_strSetupClass.IsEmpty() ? m_strInterfaceClass : m_strSetupClass;
+	if (auto offset = strGuidClass.Find(_T(":")); -1 != offset) {
+		strGuidClass = strGuidClass.Mid(0, offset);
+		strGuidClass.Trim();
+
+		strFileName += strGuidClass;
+	}
+
+
+	if (!m_strEnumerator.IsEmpty()) {
+		strFileName += _T("___") + m_strEnumerator;
+	}
+
+	if (strFileName.IsEmpty()) {
+		strFileName.Format(_T("%04d_%04d_%04d"), ::rand(), ::rand(), ::rand());
+	}
+
+	strFileName += _T(".txt");
+
+	CFile file;
+	if (!file.Open(strFileName, CFile::modeCreate | CFile::modeWrite)) {
+		MessageBox(_T("Create file failed."));
+		return;
+	}
+
+	file.Write(m_strDevicesInfo.GetString(), m_strDevicesInfo.GetLength() * sizeof(TCHAR));
+	file.Close();
 }

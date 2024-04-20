@@ -13,8 +13,9 @@
 #define IDC_COMBO_SETUP_CLASS           1002
 #define IDC_COMBO_INTERFACE_CLASS       1003
 #define IDC_COMBO_ENUMERATOR            1004
-#define IDC_BTN_CLREAR2                 1005
 #define IDC_BTN_ENUM                    1005
+#define IDC_BTN_CLREAR2                 1006
+#define IDC_BTN_SAVE                    1006
 
 // Next default values for new objects
 // 

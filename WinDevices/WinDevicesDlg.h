@@ -53,4 +53,5 @@ public:
 	
 	void GetDevicesInfo(HDEVINFO hDevInfoSet, SP_DEVINFO_DATA& deviceInfoData);
 	bool GetClassGuid(GUID* guid, bool& isSetup) const;
+	afx_msg void OnBnClickedBtnSave();
 };
