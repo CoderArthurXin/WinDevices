@@ -18,6 +18,8 @@
 #include <devguid.h>
 #include <variant>
 #include <optional>
+#include <format>
+#include <set>
 #include "interfaceGuids.h"
 
 #ifdef _DEBUG
@@ -66,6 +68,9 @@ END_MESSAGE_MAP()
 CWinDevicesDlg::CWinDevicesDlg(CWnd* pParent /*=nullptr*/)
 	: CDialogEx(IDD_WINDEVICES_DIALOG, pParent)
 	, m_strDevicesInfo(_T(""))
+	, m_strSetupClass(_T(""))
+	, m_strInterfaceClass(_T(""))
+	, m_strEnumerator(_T(""))
 {
 	m_hIcon = AfxGetApp()->LoadIcon(IDR_MAINFRAME);
 }
@@ -74,6 +79,12 @@ void CWinDevicesDlg::DoDataExchange(CDataExchange* pDX)
 {
 	CDialogEx::DoDataExchange(pDX);
 	DDX_Text(pDX, IDC_EDIT_DEVICES_INFO, m_strDevicesInfo);
+	DDX_CBString(pDX, IDC_COMBO_SETUP_CLASS, m_strSetupClass);
+	DDX_CBString(pDX, IDC_COMBO_INTERFACE_CLASS, m_strInterfaceClass);
+	DDX_CBString(pDX, IDC_COMBO_ENUMERATOR, m_strEnumerator);
+	DDX_Control(pDX, IDC_COMBO_SETUP_CLASS, m_ComboSetupClass);
+	DDX_Control(pDX, IDC_COMBO_INTERFACE_CLASS, m_ComboInterfaceClass);
+	DDX_Control(pDX, IDC_COMBO_ENUMERATOR, m_ComboEnumerator);
 }
 
 BEGIN_MESSAGE_MAP(CWinDevicesDlg, CDialogEx)
@@ -81,6 +92,7 @@ BEGIN_MESSAGE_MAP(CWinDevicesDlg, CDialogEx)
 	ON_WM_PAINT()
 	ON_WM_QUERYDRAGICON()
 	ON_BN_CLICKED(IDC_BTN_CLREAR, &CWinDevicesDlg::OnBnClickedBtnClrear)
+	ON_BN_CLICKED(IDC_BTN_ENUM, &CWinDevicesDlg::OnBnClickedBtnEnum)
 END_MESSAGE_MAP()
 
 
@@ -115,7 +127,9 @@ BOOL CWinDevicesDlg::OnInitDialog()
 	SetIcon(m_hIcon, TRUE);			// 设置大图标
 	SetIcon(m_hIcon, FALSE);		// 设置小图标
 
-	// TODO: 在此添加额外的初始化代码
+	InitSetupClassCombo();
+	InitInterfaceClassCombo();
+	InitEnumeratorCombo();
 
 	return TRUE;  // 除非将焦点设置到控件，否则返回 TRUE
 }
@@ -170,13 +184,11 @@ HCURSOR CWinDevicesDlg::OnQueryDragIcon()
 }
 
 
-typedef struct _DevPropKeyItem {
+using DevPropKeyItem = struct {
 	const DEVPROPKEY* pKey;
 	DEVPROPTYPE type;
 	const wchar_t* pName;
 };
-
-using DevPropKeyItem = struct _DevPropKeyItem;
 
 const std::vector<DevPropKeyItem> _PropKeysPtr{
 	//{&DEVPKEY_NAME,                          DEVPROP_TYPE_STRING,  L"DEVPKEY_NAME"},
@@ -192,7 +204,7 @@ const std::vector<DevPropKeyItem> _PropKeysPtr{
 	{&DEVPKEY_Device_Capabilities,           DEVPROP_TYPE_UINT32,  L"DEVPKEY_Device_Capabilities"},
 	//{&DEVPKEY_Device_BusTypeGuid,            DEVPROP_TYPE_GUID,    L"DEVPKEY_Device_BusTypeGuid"},
 	//{&DEVPKEY_Device_BusNumber,              DEVPROP_TYPE_UINT32,  L"DEVPKEY_Device_BusNumber"},
-	//{&DEVPKEY_Device_EnumeratorName,         DEVPROP_TYPE_STRING,  L"DEVPKEY_Device_EnumeratorName"},
+	{&DEVPKEY_Device_EnumeratorName,         DEVPROP_TYPE_STRING,  L"DEVPKEY_Device_EnumeratorName"},
 	//{&DEVPKEY_Device_DevType,                DEVPROP_TYPE_UINT32,  L"DEVPKEY_Device_DevType"},
 	//{&DEVPKEY_Device_Characteristics,        DEVPROP_TYPE_UINT32,  L"DEVPKEY_Device_Characteristics"},
 	//{&DEVPKEY_Device_Address,                DEVPROP_TYPE_UINT32,  L"DEVPKEY_Device_Address"},
@@ -242,6 +254,7 @@ std::optional<std::wstring> ReadGUID(const DEVPROPKEY* key, HDEVINFO hDevInfoSet
 	return propertyValue;
 }
 
+std::set<std::wstring> enumtorSet;
 
 std::optional<std::wstring> ReadString(const DEVPROPKEY* key, HDEVINFO hDevInfoSet, SP_DEVINFO_DATA& deviceInfoData)
 {
@@ -278,6 +291,10 @@ std::optional<std::wstring> ReadString(const DEVPROPKEY* key, HDEVINFO hDevInfoS
 	free(pDataBuffer);
 
 	if (propertyValue.empty()) return std::nullopt;
+
+	if (key == &DEVPKEY_Device_EnumeratorName) {
+		enumtorSet.insert(propertyValue);
+	}
 
 	return propertyValue;
 }
@@ -317,6 +334,7 @@ std::optional<UINT32> ReadUint32(const DEVPROPKEY* key, HDEVINFO hDevInfoSet, SP
 }
 
 
+
 void CWinDevicesDlg::GetDevicesInfo(HDEVINFO hDevInfoSet, SP_DEVINFO_DATA& deviceInfoData) {
 	CString strKeyInfo;
 	for (const auto& prop : _PropKeysPtr) {
@@ -348,8 +366,14 @@ void CWinDevicesDlg::GetDevicesInfo(HDEVINFO hDevInfoSet, SP_DEVINFO_DATA& devic
 
 void CWinDevicesDlg::OnBnClickedBtnClrear()
 {
-	std::vector<std::wstring> types;
+	m_strDevicesInfo.Empty();
+	UpdateData(FALSE);
+}
 
+
+void CWinDevicesDlg::OnBnClickedBtnEnum()
+{
+	std::vector<std::wstring> types;
 
 	auto hDeviceInfoSet = SetupDiGetClassDevs(
 		NULL,
@@ -375,4 +399,133 @@ void CWinDevicesDlg::OnBnClickedBtnClrear()
 	if (hDeviceInfoSet) {
 		SetupDiDestroyDeviceInfoList(hDeviceInfoSet);
 	}
+
+	CString sss;
+	for (const auto& v : enumtorSet) {
+		sss += CString(v.c_str()) + L"**";
+	}
+}
+
+void CWinDevicesDlg::InitEnumeratorCombo()
+{
+	const std::vector<std::wstring> enumerators{
+		L"ACPI",
+		L"ACPI_HAL",
+		L"BTH",
+		L"BTHENUM",
+		L"BTHHFENUM",
+		L"BTHLE",
+		L"BTHLEDEVICE",
+		L"DISPLAY",
+		L"HID",
+		L"HTREE",
+		L"INDIRECTDSP",
+		L"INTELAUDIO",
+		L"PCI",
+		L"ROOT",
+		L"RZCONTROL",
+		L"RZVIRTUAL",
+		L"SCSI",
+		L"STORAGE",
+		L"SWD",
+		L"UEFI",
+		L"UMB",
+		L"USB",
+		L"{5D624F94-8850-40C3-A3FA-A4FD2080BAF3}",
+	};
+	for (const auto& enumerator : enumerators) {
+		m_ComboEnumerator.AddString(enumerator.c_str());
+	}
+
+	UpdateData(FALSE);
+}
+
+void CWinDevicesDlg::InitSetupClassCombo()
+{
+	using SetupClassItem = struct _SetupClassItem {
+		std::wstring name;
+		GUID guid;
+	};
+
+	const std::vector<SetupClassItem> setups{
+		 {L"GUID_DEVCLASS_ADAPTER", GUID_DEVCLASS_ADAPTER},
+		 {L"GUID_DEVCLASS_BATTERY", GUID_DEVCLASS_BATTERY},
+		 {L"GUID_DEVCLASS_BLUETOOTH", GUID_DEVCLASS_BLUETOOTH},
+		 {L"GUID_DEVCLASS_CAMERA", GUID_DEVCLASS_CAMERA},
+		 {L"GUID_DEVCLASS_CDROM", GUID_DEVCLASS_CDROM},
+		 {L"GUID_DEVCLASS_COMPUTEACCELERATOR", GUID_DEVCLASS_COMPUTEACCELERATOR},
+		 {L"GUID_DEVCLASS_COMPUTER", GUID_DEVCLASS_COMPUTER},
+		 {L"GUID_DEVCLASS_FIRMWARE", GUID_DEVCLASS_FIRMWARE},
+		 {L"GUID_DEVCLASS_FLOPPYDISK", GUID_DEVCLASS_FLOPPYDISK},
+		 {L"GUID_DEVCLASS_GPS", GUID_DEVCLASS_GPS},
+		 {L"GUID_DEVCLASS_HDC", GUID_DEVCLASS_HDC},
+		 {L"GUID_DEVCLASS_HIDCLASS", GUID_DEVCLASS_HIDCLASS},
+		 {L"GUID_DEVCLASS_IMAGE", GUID_DEVCLASS_IMAGE},
+		 {L"GUID_DEVCLASS_INFINIBAND", GUID_DEVCLASS_INFINIBAND},
+		 {L"GUID_DEVCLASS_INFRARED", GUID_DEVCLASS_INFRARED},
+		 {L"GUID_DEVCLASS_KEYBOARD", GUID_DEVCLASS_KEYBOARD},
+		 {L"GUID_DEVCLASS_MEDIA", GUID_DEVCLASS_MEDIA},
+		 {L"GUID_DEVCLASS_MEMORY", GUID_DEVCLASS_MEMORY},
+		 {L"GUID_DEVCLASS_MODEM", GUID_DEVCLASS_MODEM},
+		 {L"GUID_DEVCLASS_MONITOR", GUID_DEVCLASS_MONITOR},
+		 {L"GUID_DEVCLASS_MOUSE", GUID_DEVCLASS_MOUSE},
+		 {L"GUID_DEVCLASS_NET", GUID_DEVCLASS_NET},
+		 {L"GUID_DEVCLASS_PORTS", GUID_DEVCLASS_PORTS},
+		 {L"GUID_DEVCLASS_PRINTER", GUID_DEVCLASS_PRINTER},
+		 {L"GUID_DEVCLASS_PROCESSOR", GUID_DEVCLASS_PROCESSOR},
+		 {L"GUID_DEVCLASS_SOFTWARECOMPONENT", GUID_DEVCLASS_SOFTWARECOMPONENT},
+		 {L"GUID_DEVCLASS_SOUND", GUID_DEVCLASS_SOUND},
+		 {L"GUID_DEVCLASS_SYSTEM", GUID_DEVCLASS_SYSTEM},
+		 {L"GUID_DEVCLASS_TAPEDRIVE", GUID_DEVCLASS_TAPEDRIVE},
+		 {L"GUID_DEVCLASS_USB", GUID_DEVCLASS_USB},
+		 {L"GUID_DEVCLASS_VOLUME", GUID_DEVCLASS_VOLUME}
+	};
+
+	wchar_t containerIdStr[40];
+	for (const auto& stup : setups) {
+		StringFromGUID2(stup.guid, containerIdStr, ARRAYSIZE(containerIdStr));
+
+		auto item = std::format(L"{}: {}", stup.name, containerIdStr);
+		m_ComboSetupClass.AddString(item.c_str());
+	}
+
+	UpdateData(FALSE);
+}
+
+void CWinDevicesDlg::InitInterfaceClassCombo()
+{
+	using InterfaceClassItem = struct _InterfaceClassItem {
+		std::wstring name;
+		GUID guid;
+	};
+
+	const std::vector<InterfaceClassItem> iterfaces{
+		{L"GUID_DEVINTERFACE_MOUSE", GUID_DEVINTERFACE_MOUSE},
+		{L"GUID_DEVINTERFACE_KEYBOARD", GUID_DEVINTERFACE_KEYBOARD},
+		{L"GUID_DEVINTERFACE_USB_HUB", GUID_DEVINTERFACE_USB_HUB},
+		{L"GUID_DEVINTERFACE_USB_DEVICE", GUID_DEVINTERFACE_USB_DEVICE},
+		{L"GUID_DEVINTERFACE_MONITOR", GUID_DEVINTERFACE_MONITOR},
+		{L"GUID_DEVINTERFACE_HID", GUID_DEVINTERFACE_HID},
+		{L"GUID_DEVINTERFACE_I2C", GUID_DEVINTERFACE_I2C},
+		{L"GUID_DEVINTERFACE_BRIGHTNESS", GUID_DEVINTERFACE_BRIGHTNESS},
+		{L"GUID_DEVINTERFACE_DISK", GUID_DEVINTERFACE_DISK},
+		{L"GUID_DEVINTERFACE_TAPE", GUID_DEVINTERFACE_TAPE},
+		{L"GUID_DEVINTERFACE_VOLUME", GUID_DEVINTERFACE_VOLUME},
+		{L"GUID_DEVINTERFACE_STORAGEPORT", GUID_DEVINTERFACE_STORAGEPORT},
+		{L"GUID_DEVINTERFACE_CDROM", GUID_DEVINTERFACE_CDROM},
+		{L"GUID_DEVINTERFACE_COMPORT", GUID_DEVINTERFACE_COMPORT},
+		{L"GUID_DEVINTERFACE_IMAGE", GUID_DEVINTERFACE_IMAGE},
+		{L"GUID_DEVINTERFACE_MODEM", GUID_DEVINTERFACE_MODEM},
+		{L"GUID_DEVINTERFACE_NET", GUID_DEVINTERFACE_NET},
+	};
+
+	wchar_t containerIdStr[40];
+	for (const auto& ifc : iterfaces) {
+		StringFromGUID2(ifc.guid, containerIdStr, ARRAYSIZE(containerIdStr));
+
+		auto item = std::format(L"{}: {}", ifc.name, containerIdStr);
+		m_ComboInterfaceClass.AddString(item.c_str());
+	}
+
+	UpdateData(FALSE);
 }

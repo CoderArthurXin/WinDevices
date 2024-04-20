@@ -35,4 +35,15 @@ public:
 	afx_msg void OnBnClickedBtnClrear();
 	void GetDevicesInfo(HDEVINFO hDevInfoSet, SP_DEVINFO_DATA& deviceInfoData);
 	CString m_strDevicesInfo;
+	CString m_strSetupClass;
+	CString m_strInterfaceClass;
+	CString m_strEnumerator;
+	afx_msg void OnBnClickedBtnEnum();
+
+	void InitSetupClassCombo();
+	void InitInterfaceClassCombo();
+	void InitEnumeratorCombo();
+	CComboBox m_ComboSetupClass;
+	CComboBox m_ComboInterfaceClass;
+	CComboBox m_ComboEnumerator;
 };
