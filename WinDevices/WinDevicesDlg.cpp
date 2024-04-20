@@ -7,7 +7,8 @@
 #include "WinDevices.h"
 #include "WinDevicesDlg.h"
 #include "afxdialogex.h"
-
+#include "helper.h"
+#include "constants.h"
 #include <WinBase.h>
 #include <initguid.h>   // include before devpropdef.h
 #include <Windows.h>
@@ -17,7 +18,7 @@
 #include <vector>
 #include <devguid.h>
 #include <variant>
-#include <optional>
+
 #include <format>
 #include <set>
 #include "interfaceGuids.h"
@@ -186,11 +187,7 @@ HCURSOR CWinDevicesDlg::OnQueryDragIcon()
 }
 
 
-using DevPropKeyItem = struct {
-	const DEVPROPKEY* pKey;
-	DEVPROPTYPE type;
-	const wchar_t* pName;
-};
+
 
 const std::vector<DevPropKeyItem> _PropKeysPtr{
 	{&DEVPKEY_NAME,                          DEVPROP_TYPE_STRING,  L"DEVPKEY_NAME"},
@@ -226,111 +223,6 @@ const std::vector<DevPropKeyItem> _PropKeysPtr{
 	//{&DEVPKEY_Device_DriverDesc,             DEVPROP_TYPE_STRING,  L"DEVPKEY_Device_DriverDesc"},
 };
 
-
-std::optional<std::wstring> ReadGUID(const DEVPROPKEY* key, HDEVINFO hDevInfoSet, SP_DEVINFO_DATA& deviceInfoData) 
-{
-	GUID containerId;
-	DWORD bufferSize = sizeof(GUID);
-
-	DEVPROPTYPE propType;
-	std::wstring propertyValue;
-	if (SetupDiGetDeviceProperty(
-		hDevInfoSet,
-		&deviceInfoData,
-		key,
-		&propType,
-		reinterpret_cast<PBYTE>(&containerId),
-		bufferSize,
-		&bufferSize,
-		0)) {
-		assert(propType == DEVPROP_TYPE_GUID);
-		wchar_t containerIdStr[40];
-		if (auto r = StringFromGUID2(containerId, containerIdStr, ARRAYSIZE(containerIdStr)); r > 0) {
-			propertyValue = containerIdStr;
-		}
-		
-	}
-
-	if (propertyValue.empty()) return std::nullopt;
-
-	return propertyValue;
-}
-
-std::optional<std::wstring> ReadString(const DEVPROPKEY* key, HDEVINFO hDevInfoSet, SP_DEVINFO_DATA& deviceInfoData)
-{
-	DEVPROPTYPE propType;
-	DWORD requiredSize = 0;
-
-	SetupDiGetDeviceProperty(
-		hDevInfoSet,
-		&deviceInfoData,
-		key,
-		&propType,
-		nullptr,
-		0,
-		&requiredSize,
-		0);
-
-	if (requiredSize == 0) return std::nullopt;
-	assert(propType == DEVPROP_TYPE_STRING);
-	
-	std::wstring propertyValue;
-	auto pDataBuffer = (BYTE*)malloc(requiredSize);
-	if (SetupDiGetDeviceProperty(
-		hDevInfoSet,
-		&deviceInfoData,
-		key,
-		&propType,
-		pDataBuffer,
-		requiredSize,
-		&requiredSize,
-		0)) {
-		propertyValue = reinterpret_cast<wchar_t*>(pDataBuffer);
-	}
-
-	free(pDataBuffer);
-
-	if (propertyValue.empty()) return std::nullopt;
-
-	return propertyValue;
-}
-
-std::optional<UINT32> ReadUint32(const DEVPROPKEY* key, HDEVINFO hDevInfoSet, SP_DEVINFO_DATA& deviceInfoData)
-{
-	DEVPROPTYPE propType;
-	DWORD requiredSize = 0;
-
-	SetupDiGetDeviceProperty(
-		hDevInfoSet,
-		&deviceInfoData,
-		key,
-		&propType,
-		nullptr,
-		0,
-		&requiredSize,
-		0);
-
-	if (requiredSize == 0) return std::nullopt;
-	assert(propType == DEVPROP_TYPE_UINT32);
-
-	UINT32 propertyValue;
-	if (std::vector<BYTE> buffer(requiredSize); SetupDiGetDeviceProperty(
-		hDevInfoSet,
-		&deviceInfoData,
-		key,
-		&propType,
-		buffer.data(),
-		buffer.size(),
-		&requiredSize,
-		0)) {
-		propertyValue = *reinterpret_cast<UINT32*>(buffer.data());
-	}
-
-	return propertyValue;
-}
-
-
-
 void CWinDevicesDlg::GetDevicesInfo(HDEVINFO hDevInfoSet, SP_DEVINFO_DATA& deviceInfoData) {
 	CString strKeyInfo;
 	for (const auto& prop : _PropKeysPtr) {
@@ -364,7 +256,7 @@ void CWinDevicesDlg::OnBnClickedBtnClrear()
 	UpdateData(FALSE);
 }
 
-bool CWinDevicesDlg::GetClassGuid(GUID* guid, bool& isSetup)
+bool CWinDevicesDlg::GetClassGuid(GUID* guid, bool& isSetup) const
 {
 	auto selectedGUIDStr = m_strSetupClass.IsEmpty() ? CString(L"") : m_strSetupClass;
 	selectedGUIDStr = m_strInterfaceClass.IsEmpty() ? selectedGUIDStr : m_strInterfaceClass;
@@ -384,7 +276,6 @@ bool CWinDevicesDlg::GetClassGuid(GUID* guid, bool& isSetup)
 
 	return false;
 }
-
 
 void CWinDevicesDlg::OnBnClickedBtnEnum()
 {
@@ -432,6 +323,22 @@ void CWinDevicesDlg::OnBnClickedBtnEnum()
 	UpdateData(FALSE);
 }
 
+void CWinDevicesDlg::OnSelchangeComboSetupClass()
+{
+	UpdateData(TRUE);
+	m_strInterfaceClass.Empty();
+	m_ComboInterfaceClass.SetCurSel(-1);
+	UpdateData(FALSE);
+}
+
+void CWinDevicesDlg::OnSelchangeComboInterfaceClass()
+{
+	UpdateData(TRUE);
+	m_strSetupClass.Empty();
+	m_ComboSetupClass.SetCurSel(-1);
+	UpdateData(FALSE);
+}
+
 void CWinDevicesDlg::InitEnumeratorCombo()
 {
 	const std::vector<std::wstring> enumerators{
@@ -469,11 +376,6 @@ void CWinDevicesDlg::InitEnumeratorCombo()
 
 void CWinDevicesDlg::InitSetupClassCombo()
 {
-	using SetupClassItem = struct _SetupClassItem {
-		std::wstring name;
-		GUID guid;
-	};
-
 	const std::vector<SetupClassItem> setups{
 		 {L"Empty", GUID()},
 		 {L"GUID_DEVCLASS_ADAPTER", GUID_DEVCLASS_ADAPTER},
@@ -522,11 +424,6 @@ void CWinDevicesDlg::InitSetupClassCombo()
 
 void CWinDevicesDlg::InitInterfaceClassCombo()
 {
-	using InterfaceClassItem = struct _InterfaceClassItem {
-		std::wstring name;
-		GUID guid;
-	};
-
 	const std::vector<InterfaceClassItem> iterfaces{
 		{L"Empty", GUID()},
 		{L"GUID_DEVINTERFACE_MOUSE", GUID_DEVINTERFACE_MOUSE},
@@ -558,22 +455,3 @@ void CWinDevicesDlg::InitInterfaceClassCombo()
 
 	UpdateData(FALSE);
 }
-
-
-void CWinDevicesDlg::OnSelchangeComboSetupClass()
-{
-	UpdateData(TRUE);
-	m_strInterfaceClass.Empty();
-	m_ComboInterfaceClass.SetCurSel(-1);
-	UpdateData(FALSE);
-}
-
-
-void CWinDevicesDlg::OnSelchangeComboInterfaceClass()
-{
-	UpdateData(TRUE);
-	m_strSetupClass.Empty();
-	m_ComboSetupClass.SetCurSel(-1);
-	UpdateData(FALSE);
-}
-

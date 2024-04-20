@@ -8,6 +8,15 @@
 // CWinDevicesDlg 对话框
 class CWinDevicesDlg : public CDialogEx
 {
+	CString m_strDevicesInfo;
+	CString m_strSetupClass;
+	CString m_strInterfaceClass;
+	CString m_strEnumerator;
+
+	CComboBox m_ComboSetupClass;
+	CComboBox m_ComboInterfaceClass;
+	CComboBox m_ComboEnumerator;
+
 // 构造
 public:
 	CWinDevicesDlg(CWnd* pParent = nullptr);	// 标准构造函数
@@ -31,23 +40,17 @@ protected:
 	afx_msg void OnPaint();
 	afx_msg HCURSOR OnQueryDragIcon();
 	DECLARE_MESSAGE_MAP()
+
 public:
 	afx_msg void OnBnClickedBtnClrear();
-	void GetDevicesInfo(HDEVINFO hDevInfoSet, SP_DEVINFO_DATA& deviceInfoData);
-	CString m_strDevicesInfo;
-	CString m_strSetupClass;
-	CString m_strInterfaceClass;
-	CString m_strEnumerator;
 	afx_msg void OnBnClickedBtnEnum();
+	afx_msg void OnSelchangeComboSetupClass();
+	afx_msg void OnSelchangeComboInterfaceClass();
 
 	void InitSetupClassCombo();
 	void InitInterfaceClassCombo();
 	void InitEnumeratorCombo();
-	CComboBox m_ComboSetupClass;
-	CComboBox m_ComboInterfaceClass;
-	CComboBox m_ComboEnumerator;
-	afx_msg void OnSelchangeComboSetupClass();
-	afx_msg void OnSelchangeComboInterfaceClass();
-
-	bool GetClassGuid(GUID* guid, bool& isSetup);
+	
+	void GetDevicesInfo(HDEVINFO hDevInfoSet, SP_DEVINFO_DATA& deviceInfoData);
+	bool GetClassGuid(GUID* guid, bool& isSetup) const;
 };
