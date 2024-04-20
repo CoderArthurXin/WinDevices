@@ -93,6 +93,8 @@ BEGIN_MESSAGE_MAP(CWinDevicesDlg, CDialogEx)
 	ON_WM_QUERYDRAGICON()
 	ON_BN_CLICKED(IDC_BTN_CLREAR, &CWinDevicesDlg::OnBnClickedBtnClrear)
 	ON_BN_CLICKED(IDC_BTN_ENUM, &CWinDevicesDlg::OnBnClickedBtnEnum)
+	ON_CBN_SELCHANGE(IDC_COMBO_SETUP_CLASS, &CWinDevicesDlg::OnSelchangeComboSetupClass)
+	ON_CBN_SELCHANGE(IDC_COMBO_INTERFACE_CLASS, &CWinDevicesDlg::OnSelchangeComboInterfaceClass)
 END_MESSAGE_MAP()
 
 
@@ -191,9 +193,9 @@ using DevPropKeyItem = struct {
 };
 
 const std::vector<DevPropKeyItem> _PropKeysPtr{
-	//{&DEVPKEY_NAME,                          DEVPROP_TYPE_STRING,  L"DEVPKEY_NAME"},
-	//{&DEVPKEY_Device_DeviceDesc,             DEVPROP_TYPE_STRING,  L"DEVPKEY_Device_DeviceDesc"},
-	//{&DEVPKEY_Device_Service,                DEVPROP_TYPE_STRING,  L"DEVPKEY_Device_Service"},
+	{&DEVPKEY_NAME,                          DEVPROP_TYPE_STRING,  L"DEVPKEY_NAME"},
+	{&DEVPKEY_Device_DeviceDesc,             DEVPROP_TYPE_STRING,  L"DEVPKEY_Device_DeviceDesc"},
+	{&DEVPKEY_Device_Service,                DEVPROP_TYPE_STRING,  L"DEVPKEY_Device_Service"},
 	{&DEVPKEY_Device_Class,                  DEVPROP_TYPE_STRING,  L"DEVPKEY_Device_Class"},
 	{&DEVPKEY_Device_ClassGuid,              DEVPROP_TYPE_GUID,    L"DEVPKEY_Device_ClassGuid"},
 	//{&DEVPKEY_Device_Driver,                 DEVPROP_TYPE_STRING,  L"DEVPKEY_Device_Driver"},
@@ -211,7 +213,7 @@ const std::vector<DevPropKeyItem> _PropKeysPtr{
 	//{&DEVPKEY_Device_InstallState,           DEVPROP_TYPE_UINT32,  L"DEVPKEY_Device_InstallState"},
 	//{&DEVPKEY_Device_LocationPaths,          DEVPROP_TYPE_STRING_LIST,  L"DEVPKEY_Device_LocationPaths"},
 	//{&DEVPKEY_Device_BaseContainerId,        DEVPROP_TYPE_GUID,         L"DEVPKEY_Device_BaseContainerId"},
-	//{&DEVPKEY_Device_InstanceId,             DEVPROP_TYPE_STRING,       L"DEVPKEY_Device_InstanceId"},
+	{&DEVPKEY_Device_InstanceId,             DEVPROP_TYPE_STRING,       L"DEVPKEY_Device_InstanceId"},
 	{&DEVPKEY_Device_Parent,                 DEVPROP_TYPE_STRING,       L"DEVPKEY_Device_Parent"},
 	//{&DEVPKEY_Device_Children,               DEVPROP_TYPE_STRING_LIST,  L"DEVPKEY_Device_Children"},
 	//{&DEVPKEY_Device_Siblings,               DEVPROP_TYPE_STRING_LIST,  L"DEVPKEY_Device_Siblings"},
@@ -254,8 +256,6 @@ std::optional<std::wstring> ReadGUID(const DEVPROPKEY* key, HDEVINFO hDevInfoSet
 	return propertyValue;
 }
 
-std::set<std::wstring> enumtorSet;
-
 std::optional<std::wstring> ReadString(const DEVPROPKEY* key, HDEVINFO hDevInfoSet, SP_DEVINFO_DATA& deviceInfoData)
 {
 	DEVPROPTYPE propType;
@@ -291,10 +291,6 @@ std::optional<std::wstring> ReadString(const DEVPROPKEY* key, HDEVINFO hDevInfoS
 	free(pDataBuffer);
 
 	if (propertyValue.empty()) return std::nullopt;
-
-	if (key == &DEVPKEY_Device_EnumeratorName) {
-		enumtorSet.insert(propertyValue);
-	}
 
 	return propertyValue;
 }
@@ -360,8 +356,6 @@ void CWinDevicesDlg::GetDevicesInfo(HDEVINFO hDevInfoSet, SP_DEVINFO_DATA& devic
 	}
 
 	m_strDevicesInfo += _T("\r\n\r\n");
-
-	UpdateData(FALSE);
 }
 
 void CWinDevicesDlg::OnBnClickedBtnClrear()
@@ -370,19 +364,53 @@ void CWinDevicesDlg::OnBnClickedBtnClrear()
 	UpdateData(FALSE);
 }
 
+bool CWinDevicesDlg::GetClassGuid(GUID* guid, bool& isSetup)
+{
+	auto selectedGUIDStr = m_strSetupClass.IsEmpty() ? CString(L"") : m_strSetupClass;
+	selectedGUIDStr = m_strInterfaceClass.IsEmpty() ? selectedGUIDStr : m_strInterfaceClass;
+
+	auto offset = selectedGUIDStr.Find(L"{");
+	if (-1 == offset) return false;
+
+	selectedGUIDStr = selectedGUIDStr.Mid(offset);
+	if (selectedGUIDStr.CompareNoCase(_T("{00000000-0000-0000-0000-000000000000}")) == 0) {
+		return false;
+	}
+
+	if (auto hr = CLSIDFromString(selectedGUIDStr, guid); SUCCEEDED(hr)) {
+		isSetup = !m_strSetupClass.IsEmpty();
+		return true;
+	}
+
+	return false;
+}
+
 
 void CWinDevicesDlg::OnBnClickedBtnEnum()
 {
-	std::vector<std::wstring> types;
+	UpdateData(TRUE);
+
+	GUID guid;
+	auto isSetup = false;
+	auto hasClassGuid = GetClassGuid(&guid, isSetup);
+
+	DWORD flags = DIGCF_PRESENT;
+	if (!hasClassGuid)  flags |= DIGCF_ALLCLASSES;
+	if (!isSetup) flags |= DIGCF_DEVICEINTERFACE;
 
 	auto hDeviceInfoSet = SetupDiGetClassDevs(
-		NULL,
-		NULL,
-		NULL,
-		DIGCF_ALLCLASSES | DIGCF_PRESENT);
+		hasClassGuid ? &guid : nullptr,
+		m_strEnumerator.IsEmpty() ? nullptr : m_strEnumerator.GetString(),
+		nullptr,
+		flags);
+	if (INVALID_HANDLE_VALUE == hDeviceInfoSet) {
+		auto error = std::format(_T("Last Error: {}"), ::GetLastError());
+		m_strDevicesInfo += error.c_str();
+		UpdateData(FALSE);
+		return;
+	}
 
 	DWORD deviceIndex = 0;
-
 	SP_DEVINFO_DATA deviceInfoData;
 	ZeroMemory(&deviceInfoData, sizeof(SP_DEVINFO_DATA));
 	deviceInfoData.cbSize = sizeof(SP_DEVINFO_DATA);
@@ -393,6 +421,7 @@ void CWinDevicesDlg::OnBnClickedBtnEnum()
 		&deviceInfoData)) {
 		deviceIndex++;
 
+		m_strDevicesInfo += std::format(_T("Index: {}\r\n"), deviceIndex).c_str();
 		GetDevicesInfo(hDeviceInfoSet, deviceInfoData);
 	}
 
@@ -400,15 +429,13 @@ void CWinDevicesDlg::OnBnClickedBtnEnum()
 		SetupDiDestroyDeviceInfoList(hDeviceInfoSet);
 	}
 
-	CString sss;
-	for (const auto& v : enumtorSet) {
-		sss += CString(v.c_str()) + L"**";
-	}
+	UpdateData(FALSE);
 }
 
 void CWinDevicesDlg::InitEnumeratorCombo()
 {
 	const std::vector<std::wstring> enumerators{
+		L"",
 		L"ACPI",
 		L"ACPI_HAL",
 		L"BTH",
@@ -448,6 +475,7 @@ void CWinDevicesDlg::InitSetupClassCombo()
 	};
 
 	const std::vector<SetupClassItem> setups{
+		 {L"Empty", GUID()},
 		 {L"GUID_DEVCLASS_ADAPTER", GUID_DEVCLASS_ADAPTER},
 		 {L"GUID_DEVCLASS_BATTERY", GUID_DEVCLASS_BATTERY},
 		 {L"GUID_DEVCLASS_BLUETOOTH", GUID_DEVCLASS_BLUETOOTH},
@@ -500,6 +528,7 @@ void CWinDevicesDlg::InitInterfaceClassCombo()
 	};
 
 	const std::vector<InterfaceClassItem> iterfaces{
+		{L"Empty", GUID()},
 		{L"GUID_DEVINTERFACE_MOUSE", GUID_DEVINTERFACE_MOUSE},
 		{L"GUID_DEVINTERFACE_KEYBOARD", GUID_DEVINTERFACE_KEYBOARD},
 		{L"GUID_DEVINTERFACE_USB_HUB", GUID_DEVINTERFACE_USB_HUB},
@@ -529,3 +558,22 @@ void CWinDevicesDlg::InitInterfaceClassCombo()
 
 	UpdateData(FALSE);
 }
+
+
+void CWinDevicesDlg::OnSelchangeComboSetupClass()
+{
+	UpdateData(TRUE);
+	m_strInterfaceClass.Empty();
+	m_ComboInterfaceClass.SetCurSel(-1);
+	UpdateData(FALSE);
+}
+
+
+void CWinDevicesDlg::OnSelchangeComboInterfaceClass()
+{
+	UpdateData(TRUE);
+	m_strSetupClass.Empty();
+	m_ComboSetupClass.SetCurSel(-1);
+	UpdateData(FALSE);
+}
+

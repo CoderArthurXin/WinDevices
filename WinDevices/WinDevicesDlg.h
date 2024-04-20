@@ -46,4 +46,8 @@ public:
 	CComboBox m_ComboSetupClass;
 	CComboBox m_ComboInterfaceClass;
 	CComboBox m_ComboEnumerator;
+	afx_msg void OnSelchangeComboSetupClass();
+	afx_msg void OnSelchangeComboInterfaceClass();
+
+	bool GetClassGuid(GUID* guid, bool& isSetup);
 };
