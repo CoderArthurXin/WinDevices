@@ -4,6 +4,14 @@
 
 #pragma once
 #include <SetupAPI.h>
+#include <vector>
+#include <map>
+#include <string>
+#include <any>
+#include <variant>
+
+using PropertyKeyValue = std::variant<std::wstring, UINT32>;
+using DeviceProperties = std::map<std::wstring, PropertyKeyValue>;
 
 // CWinDevicesDlg 对话框
 class CWinDevicesDlg : public CDialogEx
@@ -51,7 +59,7 @@ public:
 	void InitInterfaceClassCombo();
 	void InitEnumeratorCombo();
 	
-	void GetDevicesInfo(HDEVINFO hDevInfoSet, SP_DEVINFO_DATA& deviceInfoData);
+	void GetDevicesInfo(HDEVINFO hDevInfoSet, SP_DEVINFO_DATA& deviceInfoData, DeviceProperties& devInfo) const;
 	bool GetClassGuid(GUID* guid, bool& isSetup) const;
 	afx_msg void OnBnClickedBtnSave();
 };

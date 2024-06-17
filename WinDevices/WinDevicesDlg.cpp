@@ -14,14 +14,16 @@
 #include <Windows.h>
 #include <devpropdef.h>
 #include <devpkey.h>
-#include <string>
-#include <vector>
 #include <devguid.h>
 #include <variant>
 
 #include <format>
 #include <set>
 #include "interfaceGuids.h"
+#include "json.hpp"
+
+
+using json = nlohmann::json;
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -187,8 +189,40 @@ HCURSOR CWinDevicesDlg::OnQueryDragIcon()
 	return static_cast<HCURSOR>(m_hIcon);
 }
 
+std::string ConvertWideToUTF8(const wchar_t* wideString)
+{
+	if (nullptr == wideString)
+		return "";
+
+	int requiredSize = WideCharToMultiByte(CP_UTF8, 0, wideString, lstrlenW(wideString), nullptr, 0, 0, 0);
+	std::string utf8String(requiredSize, '\0');
+
+	if (WideCharToMultiByte(CP_UTF8, 0, wideString, lstrlenW(wideString), &utf8String[0], requiredSize, 0, 0) == 0)
+	{
+		return "";
+	}
+
+	return utf8String;
+}
+
+std::wstring ConvertUTF8ToWide(const char* utf8String)
+{
+	if (nullptr == utf8String)
+		return L"";
+
+	int requiredSize = MultiByteToWideChar(CP_UTF8, 0, utf8String, strlen(utf8String), nullptr, 0);
+	std::wstring wideString(requiredSize, L'\0');
+
+	if (MultiByteToWideChar(CP_UTF8, 0, utf8String, strlen(utf8String), &wideString[0], requiredSize) == 0)
+	{
+		return L"";
+	}
+
+	return wideString;
+}
+
 const std::vector<DevPropKeyItem> _PropKeysPtr{
-	{&DEVPKEY_NAME,                          DEVPROP_TYPE_STRING,  L"DEVPKEY_NAME"},
+	{&DEVPKEY_NAME,                          DEVPROP_TYPE_STRING,  L"DEVPKEY_Device_AOrder_NAME"},
 	{&DEVPKEY_Device_DeviceDesc,             DEVPROP_TYPE_STRING,  L"DEVPKEY_Device_DeviceDesc"},
 	{&DEVPKEY_Device_Service,                DEVPROP_TYPE_STRING,  L"DEVPKEY_Device_Service"},
 	{&DEVPKEY_Device_Class,                  DEVPROP_TYPE_STRING,  L"DEVPKEY_Device_Class"},
@@ -221,31 +255,32 @@ const std::vector<DevPropKeyItem> _PropKeysPtr{
 	//{&DEVPKEY_Device_DriverDesc,             DEVPROP_TYPE_STRING,  L"DEVPKEY_Device_DriverDesc"},
 };
 
-void CWinDevicesDlg::GetDevicesInfo(HDEVINFO hDevInfoSet, SP_DEVINFO_DATA& deviceInfoData) {
+void CWinDevicesDlg::GetDevicesInfo(HDEVINFO hDevInfoSet, SP_DEVINFO_DATA& deviceInfoData, DeviceProperties& devInfo) const {
 	CString strKeyInfo;
 	for (const auto& prop : _PropKeysPtr) {
 		strKeyInfo.Empty();
 		if (prop.type == DEVPROP_TYPE_STRING) {
 			if (auto sValue = ReadString(prop.pKey, hDevInfoSet, deviceInfoData); sValue.has_value()) {
 				strKeyInfo.Format(_T("%s: %s"), prop.pName, sValue.value().c_str());
+
+				devInfo.insert({ prop.pName, sValue.value().c_str() });
 			}
 		}
 		else if (prop.type == DEVPROP_TYPE_UINT32) {
 			if (auto uValue = ReadUint32(prop.pKey, hDevInfoSet, deviceInfoData); uValue.has_value()) {
 				strKeyInfo.Format(_T("%s: %d"), prop.pName, uValue.value());
+
+				devInfo.insert({ prop.pName, uValue.value() });
 			}
 		}
 		else if (prop.type == DEVPROP_TYPE_GUID) {
 			if (auto guid = ReadGUID(prop.pKey, hDevInfoSet, deviceInfoData); guid.has_value()) {
 				strKeyInfo.Format(_T("%s: %s"), prop.pName, guid.value().c_str());
+
+				devInfo.insert({ prop.pName, guid.value().c_str() });
 			}
-
 		}
-
-		if (!strKeyInfo.IsEmpty()) m_strDevicesInfo += strKeyInfo + _T("\r\n");
 	}
-
-	m_strDevicesInfo += _T("\r\n\r\n");
 }
 
 void CWinDevicesDlg::OnBnClickedBtnClrear()
@@ -323,23 +358,68 @@ void CWinDevicesDlg::OnBnClickedBtnEnum()
 
 	DWORD deviceIndex = 0;
 	SP_DEVINFO_DATA deviceInfoData;
+	std::vector<DeviceProperties> devices;
 	ZeroMemory(&deviceInfoData, sizeof(SP_DEVINFO_DATA));
 	deviceInfoData.cbSize = sizeof(SP_DEVINFO_DATA);
 
+	
 	// enum device
 	while (SetupDiEnumDeviceInfo(
 		hDeviceInfoSet,
 		deviceIndex,
 		&deviceInfoData)) {
-		deviceIndex++;
+		DeviceProperties info;
 
-		m_strDevicesInfo += std::format(_T("Index: {}\r\n"), deviceIndex).c_str();
-		GetDevicesInfo(hDeviceInfoSet, deviceInfoData);
+		deviceIndex++;
+		GetDevicesInfo(hDeviceInfoSet, deviceInfoData, info);
+
+		devices.emplace_back(std::move(info));
+
+		ZeroMemory(&deviceInfoData, sizeof(SP_DEVINFO_DATA));
+		deviceInfoData.cbSize = sizeof(SP_DEVINFO_DATA);
 	}
 
 	if (hDeviceInfoSet) {
 		SetupDiDestroyDeviceInfoList(hDeviceInfoSet);
 	}
+
+	json jDevicesArr;
+	deviceIndex = 0;
+	for (const auto& dev : devices) {
+		json jDev;
+		for (const auto& [key, value] : dev) {
+			std::visit([&jDev, &key](auto&& arg) {
+				using T = std::decay_t<decltype(arg)>;
+				if constexpr (std::is_same_v<T, std::wstring>) {
+					auto _k = ConvertWideToUTF8(key.c_str());
+					auto _v = ConvertWideToUTF8(arg.c_str());
+
+					jDev[_k] = _v;
+				}
+				else if constexpr (std::is_same_v<T, UINT32>) {
+					auto _k = ConvertWideToUTF8(key.c_str());
+
+					jDev[_k] = arg;
+				}
+				}, value);
+		}
+
+		++deviceIndex;
+		jDev["DEVPKEY_Device_AOrder_Index"] = deviceIndex;
+
+		jDevicesArr.push_back(jDev);
+	}
+
+	auto pretty_devices = jDevicesArr.dump(4);
+	// replace \n with \r\n
+	std::string::size_type pos = 0;
+	while ((pos = pretty_devices.find("\n", pos)) != std::string::npos) {
+		pretty_devices.replace(pos, 1, "\r\n");
+		pos += 2;
+	}
+
+	auto tStrInfoOfDevices = ConvertUTF8ToWide(pretty_devices.c_str());
+	m_strDevicesInfo += tStrInfoOfDevices.c_str();
 
 	UpdateData(FALSE);
 }
